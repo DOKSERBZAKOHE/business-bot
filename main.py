@@ -7,7 +7,6 @@ from aiogram.types import Message, BusinessConnection
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Токен берем из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
@@ -17,7 +16,6 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
-# Инициализация базы данных SQLite
 conn = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -39,7 +37,6 @@ CREATE TABLE IF NOT EXISTS target_chats (
 conn.commit()
 
 
-# 1. Отслеживание подключения бота к Telegram Business
 @dp.business_connection()
 async def on_business_connection(connection: BusinessConnection):
     user_id = connection.user_id
@@ -55,7 +52,6 @@ async def on_business_connection(connection: BusinessConnection):
     conn.commit()
 
 
-# 2. Команда /start и инструкция
 @dp.message(Command("start"))
 async def start_cmd(message: Message):
     text = (
@@ -71,7 +67,6 @@ async def start_cmd(message: Message):
     await message.answer(text, parse_mode="Markdown")
 
 
-# 3. Установка текста рассылки
 @dp.message(Command("set_text"))
 async def set_text_cmd(message: Message):
     user_id = message.from_user.id
@@ -90,7 +85,6 @@ async def set_text_cmd(message: Message):
     await message.answer(f"✅ **Текст рассылки сохранен:**\n\n{text_to_save}", parse_mode="Markdown")
 
 
-# 4. Установка ссылки на папку
 @dp.message(Command("set_folder"))
 async def set_folder_cmd(message: Message):
     user_id = message.from_user.id
@@ -109,7 +103,6 @@ async def set_folder_cmd(message: Message):
     await message.answer(f"✅ **Ссылка на папку сохранена:**\n{folder_url}", parse_mode="Markdown")
 
 
-# 5. Перехват входящих диалогов из Telegram Business
 @dp.business_message()
 async def catch_business_messages(message: Message):
     business_owner_id = message.from_user.id
@@ -122,7 +115,6 @@ async def catch_business_messages(message: Message):
     conn.commit()
 
 
-# 6. Автоматическая рассылка каждый час по всем пользователям
 async def send_hourly_broadcast():
     cursor.execute("SELECT user_id, connection_id, broadcast_text FROM users WHERE connection_id IS NOT NULL AND broadcast_text IS NOT NULL")
     active_users = cursor.fetchall()
@@ -145,11 +137,10 @@ async def send_hourly_broadcast():
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-
     scheduler.add_job(send_hourly_broadcast, "interval", hours=1)
     scheduler.start()
-
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
