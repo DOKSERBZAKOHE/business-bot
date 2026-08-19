@@ -7,10 +7,13 @@ from aiogram.types import Message, BusinessConnection
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Токен берем из переменных окружения (для безопасности)
-BOT_TOKEN = os.getenv("8708888855:AAE1cXGOMv-8jEN-P-ti1nGW7dfyM0sBlYc")
+# Токен берем из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=8708888855:AAE1cXGOMv-8jEN-P-ti1nGW7dfyM0sBlYc)
+if not BOT_TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
+
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
@@ -109,7 +112,6 @@ async def set_folder_cmd(message: Message):
 # 5. Перехват входящих диалогов из Telegram Business
 @dp.business_message()
 async def catch_business_messages(message: Message):
-    # Запоминаем ID чата клиента для конкретного владельца бизнеса
     business_owner_id = message.from_user.id
     chat_id = message.chat.id
     
@@ -136,7 +138,7 @@ async def send_hourly_broadcast():
                     text=text,
                     business_connection_id=connection_id
                 )
-                await asyncio.sleep(1)  # Пауза 1 секунда между сообщениями
+                await asyncio.sleep(1)
             except Exception as e:
                 print(f"Ошибка отправки пользователю {owner_id} в чат {chat_id}: {e}")
 
@@ -144,7 +146,6 @@ async def send_hourly_broadcast():
 async def main():
     logging.basicConfig(level=logging.INFO)
 
-    # Настройка планировщика на запуск каждый час (3600 сек)
     scheduler.add_job(send_hourly_broadcast, "interval", hours=1)
     scheduler.start()
 
