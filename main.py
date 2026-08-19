@@ -5,6 +5,7 @@ import sqlite3
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BusinessConnection
 from aiogram.filters import Command
+from aiogram.client.session.aiohttp import AiohttpSession
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -12,7 +13,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
 
-bot = Bot(token=BOT_TOKEN)
+session = AiohttpSession(proxy="http://proxy.server:3128")
+bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler()
 
