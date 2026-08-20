@@ -1,23 +1,15 @@
+import os
 import asyncio
 import logging
-import os
 import sqlite3
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, BusinessConnection
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+logging.basicConfig(level=logging.INFO)
 
-if not BOT_TOKEN:
-    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
-
-session = AiohttpSession(proxy="http://proxy.server:3128")
-bot = Bot(token=BOT_TOKEN, session=session)
-dp = Dispatcher()
-scheduler = AsyncIOScheduler()
-
+# Инициализация базы данных
 conn = sqlite3.connect("bot_data.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -25,10 +17,11 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     connection_id TEXT,
-    folder_link TEXT,
+    folder_url TEXT,
     broadcast_text TEXT
 )
 """)
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS target_chats (
     user_id INTEGER,
@@ -38,91 +31,82 @@ CREATE TABLE IF NOT EXISTS target_chats (
 """)
 conn.commit()
 
+# Настройка бота с прокси для PythonAnywhere
+session = AiohttpSession(proxy="http://proxy.server:3128")
+bot = Bot(token=os.environ.get("BOT_TOKEN"), session=session)
+dp = Dispatcher()
 
-@dp.business_connection()
-async def on_business_connection(connection: BusinessConnection):
-    user_id = connection.user_id
-    if connection.is_enabled:
-        cursor.execute(
-            "INSERT INTO users (user_id, connection_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET connection_id=?",
-            (user_id, connection.id, connection.id)
-        )
-        print(f"✅ Бот подключен к бизнесу пользователя {user_id}")
-    else:
-        cursor.execute("UPDATE users SET connection_id=NULL WHERE user_id=?", (user_id,))
-        print(f"❌ Бот отключен от бизнеса пользователя {user_id}")
-    conn.commit()
 
+# --- Команды настройки ---
 
 @dp.message(Command("start"))
-async def start_cmd(message: Message):
-    text = (
-        "👋 **Привет! Я бот для авто-рассылки в Telegram Business.**\n\n"
-        "**Как меня настроить:**\n"
-        "1. Перейдите в `Настройки` ➔ `Telegram Business` ➔ `Чат-боты` и подключите меня.\n"
-        "2. Укажите ссылку на папку для рассылки:\n"
-        "`/set_folder https://t.me/addlist/ВАША_ССЫЛКА`\n"
-        "3. Укажите текст рассылки:\n"
-        "`/set_text Ваш рекламный текст`\n\n"
-        "После этого я буду автоматически рассылать ваш текст по бизнес-чатам каждый час!"
+async def cmd_start(message: types.Message):
+    await message.answer(
+        "Привет! Я бот для автоматической рассылки через Telegram Business.\n\n"
+        "Команды:\n"
+        "• `/set_text <текст>` — задать текст рассылки\n"
+        "• `/set_folder <ссылка>` — задать ссылку на папку с чатами\n"
+        "• `/test_broadcast` — запустить рассылку прямо сейчас (тест)"
     )
-    await message.answer(text, parse_mode="Markdown")
-
 
 @dp.message(Command("set_text"))
-async def set_text_cmd(message: Message):
-    user_id = message.from_user.id
-    args = message.text.split(maxsplit=1)
-    
-    if len(args) < 2:
-        await message.answer("❌ Укажите текст после команды!\nПример:\n`/set_text Привет! Действует скидка 10%`", parse_mode="Markdown")
+async def cmd_set_text(message: types.Message):
+    text = message.text.replace("/set_text", "").strip()
+    if not text:
+        await message.answer("Пожалуйста, укажи текст после команды. Пример:\n`/set_text Ваш рекламный текст`")
         return
-
-    text_to_save = args[1]
+    
     cursor.execute(
-        "INSERT INTO users (user_id, broadcast_text) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET broadcast_text=?",
-        (user_id, text_to_save, text_to_save)
+        "INSERT INTO users (user_id, broadcast_text) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET broadcast_text=excluded.broadcast_text",
+        (message.from_user.id, text)
     )
     conn.commit()
-    await message.answer(f"✅ **Текст рассылки сохранен:**\n\n{text_to_save}", parse_mode="Markdown")
-
+    await message.answer("✅ Текст рассылки успешно сохранён!")
 
 @dp.message(Command("set_folder"))
-async def set_folder_cmd(message: Message):
-    user_id = message.from_user.id
-    args = message.text.split(maxsplit=1)
-
-    if len(args) < 2 or not args[1].startswith("https://t.me/addlist/"):
-        await message.answer("❌ Укажите корректную ссылку на папку!\nПример:\n`/set_folder https://t.me/addlist/K_4TSI0ZbcI4OGE8`", parse_mode="Markdown")
+async def cmd_set_folder(message: types.Message):
+    url = message.text.replace("/set_folder", "").strip()
+    if not url:
+        await message.answer("Пожалуйста, укажи ссылку после команды. Пример:\n`/set_folder https://t.me/addlist/...`")
         return
 
-    folder_url = args[1]
     cursor.execute(
-        "INSERT INTO users (user_id, folder_link) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET folder_link=?",
-        (user_id, folder_url, folder_url)
+        "INSERT INTO users (user_id, folder_url) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET folder_url=excluded.folder_url",
+        (message.from_user.id, url)
     )
     conn.commit()
-    await message.answer(f"✅ **Ссылка на папку сохранена:**\n{folder_url}", parse_mode="Markdown")
+    await message.answer("✅ Ссылка на папку сохранена!")
 
+
+# --- Логика Telegram Business ---
+
+@dp.business_connection()
+async def handle_business_connection(connection: types.BusinessConnection):
+    cursor.execute(
+        "INSERT INTO users (user_id, connection_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET connection_id=excluded.connection_id",
+        (connection.user_id, connection.id)
+    )
+    conn.commit()
+    logging.info(f"Бизнес-подключение {connection.id} сохранено для пользователя {connection.user_id}")
 
 @dp.business_message()
-async def catch_business_messages(message: Message):
-    business_owner_id = message.from_user.id
-    chat_id = message.chat.id
-    
+async def handle_business_message(message: types.Message):
     cursor.execute(
         "INSERT OR IGNORE INTO target_chats (user_id, chat_id) VALUES (?, ?)",
-        (business_owner_id, chat_id)
+        (message.from_user.id, message.chat.id)
     )
     conn.commit()
 
 
-async def send_hourly_broadcast():
-    cursor.execute("SELECT user_id, connection_id, broadcast_text FROM users WHERE connection_id IS NOT NULL AND broadcast_text IS NOT NULL")
-    active_users = cursor.fetchall()
+# --- Рассылка ---
 
-    for owner_id, connection_id, text in active_users:
-        cursor.execute("SELECT chat_id FROM target_chats WHERE user_id=?", (owner_id,))
+async def send_hourly_broadcast():
+    logging.info("Запуск функции рассылки...")
+    cursor.execute("SELECT user_id, connection_id, broadcast_text FROM users WHERE connection_id IS NOT NULL AND broadcast_text IS NOT NULL")
+    users = cursor.fetchall()
+
+    for user_id, connection_id, text in users:
+        cursor.execute("SELECT chat_id FROM target_chats WHERE user_id = ?", (user_id,))
         chats = cursor.fetchall()
 
         for (chat_id,) in chats:
@@ -132,17 +116,27 @@ async def send_hourly_broadcast():
                     text=text,
                     business_connection_id=connection_id
                 )
-                await asyncio.sleep(1)
+                logging.info(f"Сообщение отправлено в чат {chat_id} от пользователя {user_id}")
+                await asyncio.sleep(12)  # Безопасная задержка
             except Exception as e:
-                print(f"Ошибка отправки пользователю {owner_id} в чат {chat_id}: {e}")
+                logging.error(f"Ошибка отправки в чат {chat_id}: {e}")
 
+# Команда для ручного запуска рассылки в любой момент
+@dp.message(Command("test_broadcast"))
+async def cmd_test_broadcast(message: types.Message):
+    await message.answer("🚀 Запускаю тестовую рассылку...")
+    await send_hourly_broadcast()
+    await message.answer("✅ Тестовая рассылка завершена!")
+
+
+# --- Запуск ---
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
-    scheduler.add_job(send_hourly_broadcast, "interval", hours=1)
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(send_hourly_broadcast, 'interval', hours=1)
     scheduler.start()
-    await dp.start_polling(bot)
 
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
